@@ -1,0 +1,25 @@
+# systemd unit — install on the Pi:
+#   sudo cp acoustic-monitor.service /etc/systemd/system/
+#   sudo systemctl enable --now acoustic-monitor
+# Watchdog behaviour: any crash (OOM, broker hiccup, SD glitch) restarts the
+# loop after 10 s. State is in SQLite, so restarts lose at most one window.
+
+[Unit]
+Description=Acoustic machine health monitor
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=monitor
+WorkingDirectory=/opt/acoustic-monitor/firmware
+ExecStart=/usr/bin/python3 main.py --config /etc/acoustic-monitor/config.yaml
+Restart=always
+RestartSec=10
+# The Zero 2W has 512 MB. If we ever leak past 350 MB, die fast and restart
+# clean rather than dragging the whole OS into swap-thrash.
+MemoryMax=350M
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

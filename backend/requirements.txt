@@ -1,0 +1,35 @@
+# T2.6 (2026-08-25/26): fastapi>=0.110 with no upper bound resolved to
+# fastapi 0.141.1 / starlette 1.6.0 on a clean install, and
+# starlette.testclient.TestClient (used at module level by tests/test_api.py
+# and tests/test_frontend_backend_integration.py) now prefers a package
+# called **httpx2** over plain httpx, warning if only httpx is present and
+# RAISING RuntimeError if neither is present. httpx2 is a real PyPI package,
+# not a typo. `httpx2` below is what fixes this: with it installed,
+# TestClient imports with zero warnings (verified 2026-08-26). Kept
+# unpinned above the 0.110 floor deliberately — the bug was never the
+# fastapi/starlette version, it was the missing test-client dependency, so
+# pinning fastapi would only delay the same failure at the next resolve.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
+paho-mqtt>=1.6,<2.0
+pyjwt>=2.8
+pydantic[email]>=2.6
+# See T2.6 comment above `fastapi`. Not used by any backend/*.py at runtime —
+# this is a test-only dependency for starlette.testclient.TestClient — but it
+# lives here rather than in an ad-hoc install command because that is exactly
+# how this regression happened: a dependency "installed by hand during
+# development" that a clean install / first real deploy does not get. httpx
+# (the older, still-supported fallback) is installed separately by CI and
+# the task backlog (not in this public copy) rule 7; httpx2 takes priority when both are present.
+httpx2>=2.0
+# Required by the phone-upload route (POST /recordings): FastAPI needs it to
+# parse multipart/form-data, and without it the endpoint raises at import with
+# "Form data requires python-multipart". Added 2026-08-23; it was installed by
+# hand during development, which would have made the first real deploy fail.
+python-multipart>=0.0.9
+# Not a Python package: the phone route also needs **ffmpeg** on the server to
+# decode iOS .m4a recordings. backend/recordings.py reports its absence with
+# the install command rather than an opaque decode error, but CI and any
+# Dockerfile need `apt-get install -y ffmpeg`.

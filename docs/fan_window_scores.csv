@@ -1,0 +1,61 @@
+recording,condition,fan_speed,order,window,t_start_s,comb_score,peak_hz
+Healthy fan take 1.wav,healthy,low,before,0,0,2.64,9.25
+Healthy fan take 1.wav,healthy,low,before,1,30,10.03,14.25
+Healthy fan take 1.wav,healthy,low,before,2,60,13.52,13.75
+Healthy fan take 1.wav,healthy,low,before,3,90,9.3,14.25
+Healthy fan take 1.wav,healthy,low,before,4,120,9.54,14.25
+Healthy fan take 1.wav,healthy,low,before,5,150,10.88,14.25
+Healthy fan take 1.wav,healthy,low,before,6,180,9.39,14.25
+Healthy fan take 1.wav,healthy,low,before,7,210,9.79,14.25
+Healthy fan take 1.wav,healthy,low,before,8,240,8.04,14.0
+Healthy fan take 1.wav,healthy,low,before,9,270,8.65,14.25
+Card in fan.wav,faulted,low,during,0,0,115.56,24.75
+Card in fan.wav,faulted,low,during,1,30,97.45,25.0
+Card in fan.wav,faulted,low,during,2,60,133.19,25.25
+Card in fan.wav,faulted,low,during,3,90,129.25,25.5
+Card in fan.wav,faulted,low,during,4,120,128.27,25.5
+Card in fan.wav,faulted,low,during,5,150,138.04,26.0
+Card in fan.wav,faulted,low,during,6,180,197.24,26.0
+Card in fan.wav,faulted,low,during,7,210,121.09,26.0
+Card in fan.wav,faulted,low,during,8,240,156.75,26.25
+Card in fan.wav,faulted,low,during,9,270,139.37,26.25
+Healthy fan take 2 (after card).wav,healthy,low,after,0,0,5.79,15.0
+Healthy fan take 2 (after card).wav,healthy,low,after,1,30,8.2,15.0
+Healthy fan take 2 (after card).wav,healthy,low,after,2,60,8.49,15.0
+Healthy fan take 2 (after card).wav,healthy,low,after,3,90,6.82,14.25
+Healthy fan take 2 (after card).wav,healthy,low,after,4,120,7.89,15.0
+Healthy fan take 2 (after card).wav,healthy,low,after,5,150,7.04,15.25
+Healthy fan take 2 (after card).wav,healthy,low,after,6,180,8.79,15.0
+Healthy fan take 2 (after card).wav,healthy,low,after,7,210,6.41,9.25
+Healthy fan take 2 (after card).wav,healthy,low,after,8,240,9.83,14.25
+Healthy fan take 2 (after card).wav,healthy,low,after,9,270,7.79,15.25
+Healthy fan take 1 (high setting) 2.wav,healthy,high,before,0,0,5.99,16.5
+Healthy fan take 1 (high setting) 2.wav,healthy,high,before,1,30,5.26,33.0
+Healthy fan take 1 (high setting) 2.wav,healthy,high,before,2,60,6.51,16.75
+Healthy fan take 1 (high setting) 2.wav,healthy,high,before,3,90,5.47,16.5
+Healthy fan take 1 (high setting) 2.wav,healthy,high,before,4,120,5.73,16.5
+Healthy fan take 1 (high setting) 2.wav,healthy,high,before,5,150,4.54,8.25
+Healthy fan take 1 (high setting) 2.wav,healthy,high,before,6,180,3.08,33.25
+Healthy fan take 1 (high setting) 2.wav,healthy,high,before,7,210,3.14,25.25
+Healthy fan take 1 (high setting) 2.wav,healthy,high,before,8,240,3.9,8.75
+Healthy fan take 1 (high setting) 2.wav,healthy,high,before,9,270,2.97,25.25
+Carb in fan (high setting) 2.wav,faulted,high,during,0,0,82.55,31.5
+Carb in fan (high setting) 2.wav,faulted,high,during,1,30,114.35,31.5
+Carb in fan (high setting) 2.wav,faulted,high,during,2,60,106.65,31.5
+Carb in fan (high setting) 2.wav,faulted,high,during,3,90,98.1,31.5
+Carb in fan (high setting) 2.wav,faulted,high,during,4,120,83.65,31.5
+Carb in fan (high setting) 2.wav,faulted,high,during,5,150,91.35,31.75
+Carb in fan (high setting) 2.wav,faulted,high,during,6,180,67.76,31.5
+Carb in fan (high setting) 2.wav,faulted,high,during,7,210,81.48,31.75
+Carb in fan (high setting) 2.wav,faulted,high,during,8,240,89.16,31.5
+Carb in fan (high setting) 2.wav,faulted,high,during,9,270,76.87,31.5
+"Healthy fan take 2 (high setting, after card) 2.wav",healthy,high,after,0,0,2.86,34.0
+"Healthy fan take 2 (high setting, after card) 2.wav",healthy,high,after,1,30,3.7,8.25
+"Healthy fan take 2 (high setting, after card) 2.wav",healthy,high,after,2,60,3.72,20.0
+"Healthy fan take 2 (high setting, after card) 2.wav",healthy,high,after,3,90,3.18,20.25
+"Healthy fan take 2 (high setting, after card) 2.wav",healthy,high,after,4,120,3.09,24.75
+"Healthy fan take 2 (high setting, after card) 2.wav",healthy,high,after,5,150,3.21,25.0
+"Healthy fan take 2 (high setting, after card) 2.wav",healthy,high,after,6,180,2.75,33.25
+"Healthy fan take 2 (high setting, after card) 2.wav",healthy,high,after,7,210,3.35,33.5
+"Healthy fan take 2 (high setting, after card) 2.wav",healthy,high,after,8,240,3.51,20.0
+"Healthy fan take 2 (high setting, after card) 2.wav",healthy,high,after,9,270,3.62,50.75

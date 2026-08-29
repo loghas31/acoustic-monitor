@@ -1,0 +1,104 @@
+# T3.1 — cheap insurance that main always works.
+#
+# Two independent jobs: does the Python pipeline (firmware/ml/backend) still
+# pass its tests, and does the dashboard still compile. Deliberately NOT
+# reproducing the sandbox-specific workarounds documented in the task backlog (not in this public copy)
+# (TMPDIR=/tmp, a fresh --basetemp, the __pycache__ copy-out trick) — those
+# exist because the agent's development mount forbids file deletion and can
+# serve stale bytecode. A GitHub-hosted runner gets a clean, fully writable
+# checkout every run, so plain `pytest` and `npm run build` are the right
+# commands here, not the sandbox's defensive versions of them.
+#
+# NOTE for whoever reviews the first run of this: it has never executed on
+# GitHub's infrastructure. Every command below has been run and verified
+# LOCALLY, in the agent sandbox, on this repository (see the task backlog (not in this public copy) /
+# the commit log (not in this public copy) for the T3.1 entry with the exact output). What is
+# UNVERIFIED is the YAML itself firing correctly under GitHub's runner — the
+# agent has no way to push to GitHub or trigger Actions from its sandbox.
+# If this fails on its first real run, that is expected until proven
+# otherwise; fix forward rather than assuming the local verification lied.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  python-tests:
+    name: pytest (firmware / ml / backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+          cache-dependency-path: |
+            ml/requirements.txt
+            firmware/requirements.txt
+            backend/requirements.txt
+
+      # NOT `pip install -r firmware/requirements.txt` wholesale: that file
+      # pulls in sounddevice and spidev, the hardware-only ALSA/SPI drivers.
+      # Verified locally (this container has neither installed at all) that
+      # the full test suite and every script below run clean without them —
+      # firmware/capture.py imports both lazily, inside the functions that
+      # touch real hardware, specifically so importing the module never
+      # requires a sensor. Installing them here would need system packages
+      # (libportaudio2) for no benefit CI actually exercises.
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ml/requirements.txt -r backend/requirements.txt
+          pip install pyyaml pytest httpx httpx2 email-validator
+          # httpx2 now also comes from backend/requirements.txt (T2.6,
+          # 2026-08-26) — kept explicit here too so this line stays correct
+          # even if someone runs it standalone without that file.
+
+      # MUST come before pytest. `firmware/baseline.npz` is gitignored — it is
+      # a per-machine learned artefact, not source — so a fresh checkout has
+      # none, and 23 tests load it as a fixture. The first version of this
+      # workflow generated it in the step AFTER the suite, which is why CI runs
+      # #1-#3 all failed with 5 failures and 18 errors of
+      # `FileNotFoundError: firmware/baseline.npz` while every developer
+      # machine stayed green: every dev machine has one on disk from an earlier
+      # run, so the missing-baseline case existed nowhere but CI.
+      #
+      # This is docs/RUN_IT.md step 4 verbatim, writing to the exact default
+      # path `ml/evaluate.py` and the test fixtures read with no flag.
+      - name: Learn a baseline (RUN_IT.md step 4)
+        run: |
+          python firmware/baseline.py --simulate --windows 48 \
+              --out firmware/baseline.npz --db /tmp/ci_state.db
+
+      - name: Run the test suite
+        run: python -m pytest tests/ -q
+
+      - name: Physics + detector sanity (STAGE 3 GATE)
+        run: |
+          python ml/verify_signals.py
+          python ml/evaluate.py
+
+  frontend-build:
+    name: npm run build (dashboard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build

@@ -1,0 +1,59 @@
+# Full cloud stack: docker-compose up --build
+# Postgres + Mosquitto + API + MQTT bridge. The bridge is a separate container
+# from the API: it must hold a persistent MQTT session (QoS 1 queueing while
+# down), while the API should be free to restart/scale independently.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: monitor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+      POSTGRES_DB: monitor
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monitor"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"   # dev: plain. Production: enable the TLS listener in mosquitto.conf
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqttdata:/mosquitto/data
+
+  api:
+    build: .
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    environment: &appenv
+      DATABASE_URL: postgresql+psycopg2://monitor:${POSTGRES_PASSWORD:-devpassword}@db:5432/monitor
+      MQTT_HOST: mqtt
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+
+  bridge:
+    build: .
+    command: python mqtt_bridge.py
+    environment: *appenv
+    depends_on:
+      db:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  mqttdata:

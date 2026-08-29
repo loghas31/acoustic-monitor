@@ -1,0 +1,7 @@
+# Development / evaluation machine (not the Pi).
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7
+scikit-learn>=1.3
+# v1.5 cloud-side autoencoder only (model.py / train_offline.py / export_tflite.py):
+# pip install tensorflow

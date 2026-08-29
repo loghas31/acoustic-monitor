@@ -1,0 +1,45 @@
+# Device configuration (v2) — the onboarding flow writes this; customers never edit it.
+# Note what is ABSENT: bearing geometry. v1 is geometry-free anomaly detection;
+# asking a gym manager for ball pitch diameters violates the zero-knowledge install.
+
+device:
+  id: "dev-0001"
+  name: "Compressor A"
+
+audio:
+  sample_rate: 16000        # Hz. INMP441 handles it; bearing resonances live at 1-20 kHz,
+                            # so 8 kHz sampling (4 kHz ceiling) was provably blind (verify_signals.py)
+  channels: 1
+
+accelerometer:
+  driver: "iis3dwb"         # iis3dwb (SPI, 6.3 kHz flat band) | simulated
+                            # NOT adxl345-class: ~800 Hz usable bandwidth misses impact bands
+  sample_rate: 6400         # Hz analysis rate (driver decimates from the part's fixed 26.7 kHz)
+  range_g: 16
+
+window:
+  seconds: 30               # one inference window
+  learn_windows: 96         # minimum learn period; production target 24-72 h
+
+anomaly:
+  # Mahalanobis distance against nearest learned regime (firmware/baseline.py).
+  # Threshold = 99.5th percentile of learn-period scores, per regime.
+  persist_minutes: 30       # alert only after this long continuously anomalous.
+                            # Per-window alerting destroys customer trust; a real
+                            # bearing fault does not go away after one window.
+
+mqtt:
+  host: "localhost"
+  port: 8883
+  tls: true
+  ca_cert: "/etc/acoustic-monitor/ca.crt"
+  api_key: ""               # issued once at registration; doubles as MQTT password
+  base_topic: "devices"
+
+local_alert:
+  webhook_url: ""           # LAN target; fires even with internet down (non-negotiable)
+
+storage:
+  sqlite_path: "/var/lib/acoustic-monitor/state.db"
+  baseline_path: "/var/lib/acoustic-monitor/baseline.npz"
+  retention_days: 7

@@ -1,0 +1,42 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+# Public bearing datasets (CWRU etc.) are downloaded into data/, never
+# committed: the CWRU Bearing Data Center publishes no licence, only
+# "(c) Case Western Reserve University", so redistribution is not permitted.
+# See ml/realdata/validate_public_dataset.py --help-download.
+ml/artifacts/
+*.db
+# SQLite writes a sidecar journal next to the database; `*.db` does not match
+# it, so `test_acoustic.db-journal` was committed. Found 2026-08-19 (F11).
+*.db-journal
+*.db-wal
+*.db-shm
+# macOS Finder metadata. Committed once, for the same reason: nothing was
+# looking.
+.DS_Store
+node_modules/
+frontend/dist/
+# Vite writes a transient `vite.config.js.timestamp-<epoch>-<hash>.mjs` beside
+# the config every time it loads it, and deletes it again — unless the process
+# is killed first, which is what a test run or a Ctrl-C does. Seven of them had
+# already been committed by 2026-08-20, one per interrupted dev session, all
+# regenerable and none meaningful. Third instance of the same miss after
+# `.DS_Store` and `test_acoustic.db-journal`: tool scratch files accumulate
+# faster than anyone notices, because no test ever looks at the file list.
+frontend/vite.config.js.timestamp-*
+.env
+.venv/
+output/
+pytest-cache-files-*/
+firmware/baseline.npz
+# The v2 brief arrived in a folder literally named "use this now " WITH a
+# trailing space. Git strips trailing whitespace from .gitignore patterns
+# unless it is backslash-escaped, so the rule below never matched and the
+# folder was committed anyway (F11). The brief itself is worth keeping and now
+# lives in the v2 spec (not in this public copy)/; the two .py files in there were byte-identical
+# copies of ml/simulate.py and ml/verify_signals.py, which is exactly the
+# duplicate-source trap that caused the two-repository divergence. Pattern
+# widened so a stray trailing space can never sneak past again.
+use this now*/
