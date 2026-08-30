@@ -3,7 +3,7 @@
 Detecting mechanical faults in rotating machinery from sound, with no prior
 data about the machine being monitored.
 
-Python · NumPy/SciPy · scikit-learn · pytest · FastAPI · React · 680 tests
+Python · NumPy/SciPy · scikit-learn · pytest · FastAPI · React · 679 tests
 
 ---
 
@@ -165,7 +165,7 @@ No hardware, no recordings needed — about ten minutes:
 pip install -r ml/requirements.txt
 python ml/simulate.py --outdir data          # generate test signals
 python tools/cold_start_screen.py --self-test
-pytest tests/                                 # 680 tests
+pytest tests/                                 # 679 tests
 ```
 
 [RUN_IT.md](docs/RUN_IT.md) walks through the whole pipeline on synthetic
@@ -197,6 +197,63 @@ measurement disagreeing with an assumption.
 
 ---
 
+## Documentation
+
+Every document in `docs/`, grouped. The findings register is the one to read
+first if you only read one.
+
+**The engineering record**
+
+| | |
+|---|---|
+| [DOC_SELF_REVIEW.md](docs/DOC_SELF_REVIEW.md) | 26 findings against this project's own work, retractions included |
+| [DOC_STATUS.md](docs/DOC_STATUS.md) | the running boundary between what is proven and what is assumed |
+| [RESULTS.md](RESULTS.md) | the lab notebook: every experiment, including the disappointing ones |
+
+**The physics and the detector**
+
+| | |
+|---|---|
+| [DOC_PHYSICS.md](docs/DOC_PHYSICS.md) | why envelope demodulation, and what a bearing defect does to a signal |
+| [DOC_DETECTOR.md](docs/DOC_DETECTOR.md) | the self-baselined anomaly detector, end to end |
+| [DOC_PIPELINE.md](docs/DOC_PIPELINE.md) | features, regimes, thresholds, persistence gate |
+| [COLD_START.md](docs/COLD_START.md) | detecting a fault with no baseline at all |
+| [DOC_SENSITIVITY.md](docs/DOC_SENSITIVITY.md) | how small a fault the detector can see, and how that was measured |
+
+**Running it**
+
+| | |
+|---|---|
+| [RUN_IT.md](docs/RUN_IT.md) | the whole pipeline on synthetic signals, about ten minutes |
+| [TESTS.md](TESTS.md) | the run sheet for testing it on a real machine |
+| [FAN_EXPERIMENT.md](docs/FAN_EXPERIMENT.md) | protocol for reproducing the headline result |
+| [FRIDGE_TEST.md](docs/FRIDGE_TEST.md) | the same idea on a fridge, and why it is the weaker experiment |
+| [PHONE_RECORDING.md](docs/PHONE_RECORDING.md) | recording usable audio on a phone, and the traps in it |
+| [REAL_DATA_SOURCES.md](docs/REAL_DATA_SOURCES.md) | public labelled datasets (MIMII, DCASE, CWRU) and their licences |
+| [fan_window_scores.csv](docs/fan_window_scores.csv) | the 60 per-window scores behind Experiment 0c |
+
+**The system around the detector**
+
+| | |
+|---|---|
+| [DOC_FIRMWARE.md](docs/DOC_FIRMWARE.md) | what runs on the Raspberry Pi |
+| [DOC_BACKEND.md](docs/DOC_BACKEND.md) | FastAPI service, MQTT bridge, data model |
+| [DOC_FRONTEND.md](docs/DOC_FRONTEND.md) | the React dashboard |
+| [DOC_ALERTING.md](docs/DOC_ALERTING.md) | when to alert, and the cost of getting it wrong |
+| [WIFI_PROVISIONING.md](docs/WIFI_PROVISIONING.md) | headless Wi-Fi setup and the captive portal |
+| [DOC_TOOLS.md](docs/DOC_TOOLS.md) | the command-line tools, including `build_sim_dashboard.py`, which renders `tools/sim_dashboard.html` from a simulation trace |
+
+**Performance and endurance**
+
+| | |
+|---|---|
+| [DOC_BENCH.md](docs/DOC_BENCH.md) | bench harnesses for real sensors |
+| [DOC_PI_PERF.md](docs/DOC_PI_PERF.md) | does it fit in a Pi's CPU and memory budget |
+| [DOC_SOAK_MEMORY.md](docs/DOC_SOAK_MEMORY.md) | memory over a long run |
+| [DOC_SOAK_DB_GROWTH.md](docs/DOC_SOAK_DB_GROWTH.md) | database growth over a long run |
+
+---
+
 ## Repository map
 
 | | |
@@ -206,7 +263,7 @@ measurement disagreeing with an assumption.
 | `tools/` | the analysis command line: cold-start screen, one-command scan, experiment harnesses |
 | `backend/` | FastAPI + SQLAlchemy service, MQTT bridge, alert dispatch |
 | `frontend/` | React dashboard |
-| `tests/` | 680 tests, run on every push |
+| `tests/` | 679 tests, run on every push |
 | `docs/` | physics, pipeline, detector, alerting, sensitivity — and the findings register |
 
 ---

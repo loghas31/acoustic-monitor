@@ -3,7 +3,26 @@
 Companion to the system overview (not in this public copy) §7. **Keep this file honest.** It is
 the difference between an engineering project and a demo.
 
-Last updated: 2026-08-29, F25. `tools/fridge_scan.py` cleared its per-stem
+Last updated: 2026-08-30, T1.16 #1. **A claim in this project's own tooling
+moved from "warned about" to "actually detectable".** `cold_start_screen.py`'s
+clipping guard was blind to every lossy recording — i.e. to every phone
+recording, which is the only real input this project has. Measured through a
+real ffmpeg AAC round trip: `data/normal.wav`, a HEALTHY machine scoring 5.5,
+driven into clipping reports **51.7 at 49.75 Hz**, above the ~35 this tool's
+own documentation calls a real fault, with the flat-top test reading 0.00063
+and staying silent. Fixed by adding true-peak (dBTP, ITU-R BS.1770-4) as a
+second, independent test — a codec destroys the sample-level evidence and
+*creates* the inter-sample overshoot, so the two fail in opposite conditions.
+Zero false positives on all ten real/simulated recordings in `data/`
+(−0.74 to −27.72 dBTP against a 0.0 threshold). Suite 680 → **694**.
+Full detail: the task backlog (not in this public copy) T1.16 #1 / Run log, `docs/DOC_SELF_REVIEW.md`
+F28. **Residual, stated plainly:** the guard is 3-6 dB clear on broadband
+audio but only **0.05 dB** clear on a clipped pure tone — narrowband signals
+gain almost no overshoot from clipping — so tonal clipping is caught only by
+the original flat-top test, and only on un-transcoded WAV. Not closed, not
+hidden.
+
+Previous update: 2026-08-29, F25. `tools/fridge_scan.py` cleared its per-stem
 `data/_scan_work/<stem>` working directory with `shutil.rmtree()`, which this
 project's sandboxed dev environment refuses to execute at all — confirmed
 directly (a plain shell `rm -rf` on the identical directory fails the same
@@ -21,7 +40,7 @@ session and should not be assumed green until a future run confirms them —
 none exercise `tools/fridge_scan.py`, so there is no code-path reason to
 expect this fix broke them, but that is an inference, not a measurement.
 
-Previous update: 2026-08-28, T5.3 (pitch deck). No detection/physics claim moved
+Update before that: 2026-08-28, T5.3 (pitch deck). No detection/physics claim moved
 — the pitch material (not in this public copy) is a packaging task, not a measurement — but worth a
 line here because building it exercised this file directly: line 717's
 instruction ("the pitch deck should quote the ratio to control, not the
@@ -497,6 +516,9 @@ Every row below was run and its output observed. Re-run any of them.
 
 | Claim | Command | Result |
 |---|---|---|
+| Clipping survives a lossy codec as an inter-sample peak, and is detectable that way | `pytest tests/test_cold_start_screen.py` (14 new tests, one gated on ffmpeg) | Real AAC 128k round trip of ADC-clipped audio: flat-top **0.00063, silent**; true peak **+3.27 dBTP**, warned. Healthy `normal.wav` driven into clipping scores **51.7 at 49.75 Hz** on old code with no warning (healthy baseline 5.5); `bearing_outer` goes **94.1 at 99.75 Hz** against a true 152.25. Zero false positives: six real phone recordings **-2.65 to -27.72 dBTP**, `normal`/`bearing_outer`/`bearing_inner`/`imbalance` **-0.74 to -0.91**, threshold 0.0 |
+| The clipping guard is 3-6 dB clear on broadband audio and 0.05 dB clear on a tone | same, plus the measurements in `true_peak_dbtp`'s docstring | broadband clipped **+6.31 dBTP**, real fan audio clipped **+3.27**, clipped 137 Hz sine **+0.05** against a clean full-scale sine at **-0.00**. Tonal clipping is covered by `clipped_fraction`, not by this — stated as a live blind spot, not a solved case |
+| RESULTS.md Experiment 0 is reproducible after the `fan_experiment.load` signature change | `python tools/fan_experiment.py "data/Healthy fan take 1.wav" "data/Card in fan.wav" "data/Healthy fan take 2 (after card).wav" --predict-hz 26.1` | **bit-identical** to the recorded run: 1.9 / 20.4 / 5.3 at 9.2 / 25.8 / 15.0 Hz |
 | Envelope analysis beats raw spectrum | `python ml/verify_signals.py` | 2.2× raw vs **56.7×** envelope |
 | Features behave on synthetic data | `python firmware/features.py` | 37-dim vector; fault selects 3866–5420 Hz, crest 95.4; healthy falls back, crest 6.0 |
 | No feature block is singular by construction | `pytest tests/test_compositional.py` | The one exactly-dependent block (6 raw envelope fractions, null direction = uniform vector to \|cos\| **1.0000**) is gone: sv ratio **6.5e-3 → 0.34** on identical windows. ILR verified invertible, scale-invariant, isometric, and NaN-free on a dead channel |

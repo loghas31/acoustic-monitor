@@ -218,6 +218,41 @@ version of the screen *discarded* it. That fix — flag but never remove — is
 what allowed this result to be seen at all. Logged as **F25** in
 `docs/DOC_SELF_REVIEW.md`.
 
+### Addendum 2026-08-30 — none of the six recordings was clipped, now measured
+
+Added when `true_peak_dbtp` went into `cold_start_screen.py` (T1.16 #1). This
+retrospectively closes an objection nobody had raised but which would have
+been fair: clipping manufactures harmonic combs, and a clipped recording can
+score like a fault. Until this run there was **no measurement** saying these
+six recordings were clean — the flat-top test read 0.00000 on all of them,
+but that test is blind to lossy audio and every one of these came off a phone
+as AAC.
+
+| recording | true peak |
+|---|---|
+| Healthy fan take 1 | −14.42 dBTP |
+| Card in fan | −11.00 dBTP |
+| Healthy fan take 2 (after card) | −8.13 dBTP |
+| Healthy fan take 1 (high setting) 2 | **−2.65 dBTP** |
+| Carb in fan (high setting) 2 | −13.94 dBTP |
+| Healthy fan take 2 (high setting, after card) 2 | −27.72 dBTP |
+
+All clear of the 0.0 dBTP threshold, so **Experiments 0 and 0b are not
+clipping artefacts.** For scale, deliberately clipping `data/normal.wav` — a
+healthy machine scoring 5.5 — and putting it through the same AAC round trip
+makes it score 51.7, above the ~35 this project calls a real fault.
+
+⚠ **One practical note for the next recording session.** "Healthy fan take 1
+(high setting) 2" has only **2.65 dB** of headroom, against 8-28 dB for the
+others. It is not clipped, but it is the one take where a slightly louder
+machine or a slightly closer phone would have clipped, and it is a *healthy*
+take — clipping it would have inflated a healthy score and weakened the
+contrast. Aim for the −12 dB region the other takes landed in.
+
+Re-running Experiment 0 after the change reproduced it **bit-identically**
+(1.9 / 20.4 / 5.3 at 9.2 / 25.8 / 15.0 Hz), so the tooling change altered
+nothing above.
+
 ### Artefacts
 
 Recordings in `data/` (gitignored, not committed). Photographs of the fan and

@@ -52,6 +52,91 @@ first. Then reference it from anywhere else.
 
 ---
 
+## F28 — The clipping guard was blind to every lossy recording, and a clipped HEALTHY machine reads as a fault ✅ FIXED (T1.16 #1, 2026-08-30)
+
+Filed by the 2026-08-28 adversarial review as T1.16 #1 and left open for two
+days as "needs a genuinely codec-robust measure". Fixed 2026-08-30.
+
+**The row understated it, and that is the finding worth keeping.** T1.16 #1
+described a missing hygiene warning: clipping is detected before a codec and
+not after. What it did not say is what the missing warning costs. Measured
+this run, through a real ffmpeg AAC 128 kbps round trip:
+
+| recording | comb score | reported f0 | flat-top | warned? |
+|---|---|---|---|---|
+| `normal.wav`, 6 dB headroom (HEALTHY) | 5.5 | 17.75 Hz | 0.00000 | no ✔ |
+| `normal.wav`, driven into clipping | **51.7** | **49.75 Hz** | 0.00063 | **no ✘** |
+| `bearing_outer.wav`, headroom | 31.7 | 152.25 Hz (true) | 0.00000 | no ✔ |
+| `bearing_outer.wav`, clipping | **94.1** | **99.75 Hz (wrong)** | 0.00035 | **no ✘** |
+
+`cold_start_screen.py`'s own documentation calls ~35 "a real fault". So a
+healthy machine, recorded slightly too loud on a phone, was reported as a
+fault scoring 51.7 at a specific plausible frequency, silently. And a genuine
+fault did not merely exaggerate — the reported frequency moved off the true
+BPFO onto a harmonic. Both confirmed against the pristine
+`git show HEAD:tools/cold_start_screen.py`, not inferred.
+
+**Why the flat-top test cannot see it.** `clipped_fraction` requires
+bit-identical neighbouring samples. A lossy codec perturbs every sample, so
+the evidence is gone: 0.789 pre-codec → 0.00067 post, under a 0.001 floor.
+
+**Why true peak can.** The same operation that destroys the sample-level
+evidence creates a different one. A codec band-limits and re-synthesises;
+band-limiting a waveform with flat tops is textbook Gibbs conditions, so the
+reconstruction *overshoots* the level the signal was sliced at. Measuring
+that overshoot between samples is the standard true-peak measurement of
+ITU-R BS.1770-4 / EBU R128. It is needed because ffmpeg's default 16-bit
+decode hard-limits the overshoot back to ±1.0: at the samples the peak reads
+0.00 dBTP, and only after 4x oversampling does it read +6.3.
+
+**Three candidates were measured and rejected first**, recorded so nobody
+retries them (full numbers in `clipped_fraction`'s docstring):
+
+  * **odd-harmonic ratio** — the row's own first suggestion. Superb on tones
+    (clean 4.32 vs clipped 682555) and *useless* on broadband: 0.72 clean vs
+    0.72 clipped on the same fan recording. Real machine audio is broadband.
+  * **spectral flatness** — the row's second suggestion. Moves the wrong way:
+    a codec *removes* high-frequency content, lowering flatness, while
+    clipping raises it. The two effects fight.
+  * **amplitude-histogram plateau prominence** — this run's own idea, and it
+    fails for a reason worth stating because it kills the whole family: a
+    sinusoid's amplitude density *also* diverges at its own peak, so tonal
+    and clipped audio are not separable in the amplitude domain at all.
+    Measured p99.9/p90 puts clipped-post-AAC (1.126) **between** clean sine
+    (1.208) and `normal.wav` (1.261). This is the same root cause that
+    already killed the "level-domain" candidate in 2026-08-28's rejection
+    list; it was rediscovered from a different direction, which is mild
+    evidence the earlier rejection was right rather than unlucky.
+
+**A fourth fix was tried and measured counterproductive**, which is the
+non-obvious one: making the converters decode `pcm_f32le` so ffmpeg stops
+hard-limiting the overshoot. It makes `clipped_fraction` *strictly worse* —
+0.00165 (warned) → 0.00000 (missed) on the realistic case — because 16-bit
+re-clipping is precisely what accidentally restores some bit-identical
+neighbours. True peak reads +3.27 dBTP under either decode. No converter was
+touched.
+
+**The trap this nearly shipped with.** True peak cannot be computed inside
+`screen()`: by then the caller has normalised to peak 1.0, which is 0 dBTP
+for every signal in existence. The first draft of the false-positive guard
+test used the test module's normalising `_load` helper and returned +0.01
+dBTP on all four control signals — a clean sweep of false positives that
+looked like the metric failing rather than the test being wrong. Now pinned
+by `test_normalising_before_measuring_would_flag_everything`, and the
+scaling factored into a shared `full_scale_float()` so `main()` and the
+tests cannot diverge.
+
+⚠ **STILL OPEN, and deliberately not papered over.** A clipped **pure tone**
+clears the 0.0 dBTP threshold by **0.05 dB**, against 3-6 dB for anything
+broadband — a narrowband waveform gains almost no inter-sample overshoot
+from clipping. `clipped_fraction` covers the tonal case exactly on
+un-transcoded WAV, which is why it was kept rather than replaced, and
+`screen()` warns on either test. A clipped tone that has *also* been through
+a codec is caught by neither. Not filed as a task: there is no evidence yet
+that it bites, and the machines in scope are broadband.
+
+---
+
 ## F27 — `firmware/main.py` shadows `backend/main.py`, and the suite is green only because `test_api.py` sorts first alphabetically ✅ FIXED (T3.1, 2026-08-29)
 
 Measured 2026-08-29 (daily review). **Same class as F12: a cross-file ordering

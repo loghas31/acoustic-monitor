@@ -33,7 +33,9 @@ ROOT = Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
 
 # Root-level docs are their own entry points and need no inbound link.
-ROOT_DOCS = {"README.md", "TESTS.md", "the project plan (not in this public copy)", "RESULTS.md", "CONTRIBUTING.md"}
+# the project plan (not in this public copy) is not part of the public repository, so it is not an entry
+# point here and must not be asserted to exist.
+ROOT_DOCS = {"README.md", "TESTS.md", "RESULTS.md", "CONTRIBUTING.md"}
 
 
 def _readme() -> str:
@@ -79,15 +81,13 @@ def test_every_tool_is_referenced_by_code_a_test_or_a_doc():
 
 def test_the_three_entry_points_link_to_each_other():
     """A newcomer lands on README; someone about to test lands on TESTS.md;
-    someone deciding what to do next lands on the project plan (not in this public copy). Each has to lead to the
-    others or the reader gets stranded in whichever one they opened."""
+    someone deciding what to measure lands on RESULTS.md. Each has to lead to
+    the others or the reader gets stranded in whichever one they opened."""
     readme = _readme()
-    assert "TESTS.md" in readme and "the project plan (not in this public copy)" in readme
+    assert "TESTS.md" in readme and "RESULTS.md" in readme
 
     tests_md = (ROOT / "TESTS.md").read_text(encoding="utf-8")
-    plan_md = (ROOT / "the project plan (not in this public copy)").read_text(encoding="utf-8")
     assert "the manual-steps guide (not in this public copy)" in tests_md or "FRIDGE_TEST.md" in tests_md
-    assert "TESTS.md" in plan_md, "the plan must point at the run sheet"
 
 
 def test_no_readme_link_points_at_a_missing_file():

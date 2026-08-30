@@ -91,13 +91,20 @@ for _p in (ROOT / "tools", ROOT / "firmware"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from cold_start_screen import screen                      # noqa: E402
+from cold_start_screen import (                            # noqa: E402
+    full_scale_float, screen, true_peak_dbtp)
 
 CANON_FS = 16000
 
 
-def load(path: Path, workdir: Path) -> tuple[np.ndarray, float]:
-    """Any phone format -> mono float array at the canonical rate."""
+def load(path: Path, workdir: Path) -> tuple[np.ndarray, float, float]:
+    """Any phone format -> mono float array at the canonical rate.
+
+    Returns `(x, fs, true_peak_dbtp)`. The true peak is measured on the samples
+    AS DECODED, before the peak normalisation on the last line — it is the only
+    clipping evidence that survives a lossy codec, and normalising first would
+    make it 0 dBTP for every recording. See `cold_start_screen.true_peak_dbtp`.
+    """
     from scipy.io import wavfile
 
     if path.suffix.lower() != ".wav":
@@ -109,10 +116,11 @@ def load(path: Path, workdir: Path) -> tuple[np.ndarray, float]:
         path = out
 
     fs, data = wavfile.read(path)
+    tp = true_peak_dbtp(full_scale_float(data))
     x = data.astype(np.float64)
     if x.ndim > 1:
         x = x.mean(axis=1)
-    return x / (np.max(np.abs(x)) + 1e-12), float(fs)
+    return x / (np.max(np.abs(x)) + 1e-12), float(fs), tp
 
 
 def estimate_rpm(x: np.ndarray, fs: float, mains: float = 50.0) -> int:
@@ -276,7 +284,7 @@ def main(argv=None) -> int:
         return self_check()
     if args.estimate_rpm:
         with tempfile.TemporaryDirectory() as td:
-            x, fs = load(args.estimate_rpm.expanduser(), Path(td))
+            x, fs, _tp = load(args.estimate_rpm.expanduser(), Path(td))
         return estimate_rpm(x, fs, mains=args.mains)
     if not (args.before and args.during and args.after):
         ap.error("give three recordings (before during after), "
@@ -307,9 +315,9 @@ def main(argv=None) -> int:
             sigs[label] = load(p, work)
 
         # Equal length or the comparison is meaningless — see the docstring.
-        n = min(len(x) for x, _ in sigs.values())
+        n = min(len(x) for x, _, _ in sigs.values())
         secs = n / CANON_FS
-        lengths = {k: len(x) / fs for k, (x, fs) in sigs.items()}
+        lengths = {k: len(x) / fs for k, (x, fs, _tp) in sigs.items()}
         print(f"\nrecording lengths (s): " +
               ", ".join(f"{k.split()[0]} {v:.1f}" for k, v in lengths.items()))
         print(f"trimming all three to {secs:.1f} s so the scores are "
@@ -319,8 +327,8 @@ def main(argv=None) -> int:
                   f"each is much steadier.")
 
         results = {}
-        for label, (x, fs) in sigs.items():
-            results[label] = screen(x[:n], fs, mains=args.mains)
+        for label, (x, fs, tp) in sigs.items():
+            results[label] = screen(x[:n], fs, mains=args.mains, true_peak=tp)
 
     print(f"\n{'condition':<18} {'score':>8} {'peak Hz':>9}   flag")
     print("-" * 58)

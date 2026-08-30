@@ -61,7 +61,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "firmware"))
 
-from cold_start_screen import screen                      # noqa: E402
+from cold_start_screen import (                            # noqa: E402
+    full_scale_float, screen, true_peak_dbtp)
 
 WIN_S = 30.0
 N_WIN = 10
@@ -77,14 +78,21 @@ RECORDINGS = [
 ]
 
 
-def load_mono(path: Path) -> tuple[np.ndarray, float]:
-    """Mono float array normalised over the WHOLE file — see module docstring."""
+def load_mono(path: Path) -> tuple[np.ndarray, float, float]:
+    """Mono float array normalised over the WHOLE file — see module docstring.
+
+    Also returns the file's true peak in dBTP, measured BEFORE that
+    normalisation: it is the only clipping evidence that survives the lossy
+    codec every phone recording arrives in, and a peak-normalised signal reads
+    0 dBTP whatever it was. See `cold_start_screen.true_peak_dbtp`.
+    """
     from scipy.io import wavfile
     fs, data = wavfile.read(path)
+    tp = true_peak_dbtp(full_scale_float(data))
     x = data.astype(np.float64)
     if x.ndim > 1:
         x = x.mean(axis=1)
-    return x / (np.max(np.abs(x)) + 1e-12), float(fs)
+    return x / (np.max(np.abs(x)) + 1e-12), float(fs), tp
 
 
 def main(argv=None) -> int:
@@ -100,13 +108,13 @@ def main(argv=None) -> int:
         if not path.exists():
             print(f"missing: {path}", file=sys.stderr)
             return 2
-        x, fs = load_mono(path)
+        x, fs, tp = load_mono(path)
         n = int(WIN_S * fs)
         for i in range(N_WIN):
             seg = x[i * n:(i + 1) * n]
             if len(seg) < n:
                 break
-            r = screen(seg, fs, mains=a.mains)
+            r = screen(seg, fs, mains=a.mains, true_peak=tp)
             rows.append((fname, cond, speed, order, i, int(i * WIN_S),
                          round(float(r["best_score"]), 2), r["best_f0"]))
             print(f"  {cond:8s} {speed:4s} {order:6s} w{i:02d} "

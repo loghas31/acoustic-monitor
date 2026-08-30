@@ -75,7 +75,11 @@ reported rather than silently producing a confident number:
 2. **Clipping** — flat-topping a waveform makes it a square wave, i.e. a
    harmonic series, i.e. precisely what this searches for. A hard-clipped sine
    scores 2.9e7 against a real fault's ~35 — seven orders of magnitude. Now
-   detected (see `clipped_fraction`) and warned about.
+   detected by TWO independent tests and warned about: `clipped_fraction`
+   (exact on un-transcoded WAV, blind after a lossy codec) and
+   `true_peak_dbtp` (survives the codec, marginal on pure tones). Both are
+   needed; a phone recording is always lossy, and the flat-top test alone
+   missed a clipped one by a factor of 2 on the warning floor.
 3. **An empty demodulation band** — if there is nothing above 1 kHz, the score
    becomes noise divided by noise. A clean 137 Hz tone scored 13431 this way.
    Now caught by a band-energy ratio check.
@@ -103,6 +107,8 @@ MAINS_REJECT_HZ = 1.5         # how close to a mains harmonic counts as mains
 CLIP_FRAC_WARN = 0.001        # >0.1% of samples at full scale = suspect clipping
 BAND_ENERGY_FLOOR = 1e-3      # band-envelope/signal RMS below this = empty band
 MIN_FS = 12000.0              # below this the 1-20 kHz search band collapses
+TRUE_PEAK_WARN_DBTP = 0.0     # reaching digital full scale = suspect clipping
+TRUE_PEAK_OVERSAMPLE = 4      # ITU-R BS.1770-4 uses >=4x for true-peak
 
 # WHY CLIPPING IS SPECIFICALLY DANGEROUS FOR *THIS* TOOL, more than for the
 # rest of the project. Clipping flattens waveform peaks, and a flattened
@@ -136,9 +142,9 @@ def clipped_fraction(x: np.ndarray) -> float:
     So: near full scale AND flat (successive difference below a quantisation-
     sized epsilon), for at least two samples in a row.
 
-    ⚠ KNOWN LIMITATION — A LOSSY CODEC DEFEATS THIS, AND LOSSY IS THE NORMAL
-    INPUT. AAC decoder overshoot perturbs every sample, so bit-identical
-    neighbours vanish. Measured on the same clipped signal:
+    ⚠ A LOSSY CODEC DEFEATS THIS TEST, AND LOSSY IS THE NORMAL INPUT. AAC
+    decoder overshoot perturbs every sample, so bit-identical neighbours
+    vanish. Measured on the same clipped signal:
 
         before codec              flat-top 0.4936  -> warned
         after AAC 128k round-trip flat-top 0.0009  -> NOT warned (floor 0.001)
@@ -147,8 +153,14 @@ def clipped_fraction(x: np.ndarray) -> float:
     converts .m4a via ffmpeg, a clipped phone recording can reach the analysis
     unwarned.
 
-    TWO REPLACEMENTS WERE TRIED AND BOTH REJECTED. Recorded so they are not
-    retried:
+    **That gap is now covered by `true_peak_dbtp()`, not by this function** —
+    see its docstring for the measurements. This function is kept unchanged for
+    what it genuinely catches (WAV input, and any file that has not been
+    through a lossy codec), because on that input it is exact and needs no
+    threshold. The two are complementary, and `screen()` warns on either.
+
+    THREE REPLACEMENTS FOR *THIS* FUNCTION WERE TRIED AND ALL REJECTED.
+    Recorded so they are not retried:
 
       1. Level-domain (fraction of samples within a hair of the peak). Failed
          BOTH ways: still 0.0009 post-AAC, while false-positiving at 0.0029 on
@@ -159,13 +171,19 @@ def clipped_fraction(x: np.ndarray) -> float:
          clipped post-AAC 1.82 — against `normal.wav` 2.10, `bearing_outer`
          2.11, `bearing_inner` 2.30. A 1.82-vs-2.10 gap is far too narrow to
          threshold; it would misclassify real machine audio.
+      3. Amplitude-histogram shape (2026-08-30). The idea was that clipping
+         piles samples at the clip level, leaving an interior mode once codec
+         overshoot pushes the maximum above it. It cannot work, and the reason
+         is worth keeping: a sinusoid's amplitude density ALSO diverges at its
+         own peak, so tonal and clipped audio are not separable in the
+         amplitude domain at all. Measured p99.9/p90: clipped-post-AAC 1.126,
+         clean sine post-AAC 1.208, `normal.wav` 1.261 — the "clipped" case
+         sits between two clean ones. Same root cause as rejection 1.
 
-    So the flat-top rule is kept for what it genuinely catches (WAV input, and
-    any file that has not been through a lossy codec), and the codec case is
-    an OPEN limitation — filed in the task backlog (not in this public copy). The practical remedy is
-    upstream anyway: clipping cannot be undone after the fact, so the answer is
-    not to clip while recording. `TESTS.md` says so, and `tools/ingest.py` runs
-    its own clipping audit on the path `fridge_scan.py` actually uses.
+    The practical remedy is still upstream: clipping cannot be undone after
+    the fact, so the answer is not to clip while recording. `TESTS.md` says
+    so, and `tools/ingest.py` runs its own clipping audit on the path
+    `fridge_scan.py` actually uses.
     """
     if len(x) < 3:
         return 0.0
@@ -175,6 +193,114 @@ def clipped_fraction(x: np.ndarray) -> float:
     near = np.abs(x) >= 0.999 * peak
     flat = np.abs(np.diff(x)) <= 1e-6 * peak
     return float(np.sum(near[:-1] & near[1:] & flat)) / len(x)
+
+
+def full_scale_float(data: np.ndarray) -> np.ndarray:
+    """A wav's samples as read, rescaled so +-1.0 IS digital full scale.
+
+    wav stores int16 as -32768..32767, int32 as +-2^31, uint8 as 0..255 with
+    128 as silence, and float as already +-1 by convention — the same four
+    cases `tools/ingest.py` documents at length. This exists as its own
+    function only so that `true_peak_dbtp`'s callers, including its tests,
+    cannot quietly diverge from what `main()` does: getting the scaling wrong
+    does not raise, it silently reports every 16-bit recording at -90 dBTP.
+
+    Note what this deliberately does NOT do: normalise. Peak-normalising
+    before measuring makes the true peak 0 dBTP for every input in existence.
+    """
+    x = np.asarray(data, dtype=np.float64)
+    if x.ndim > 1:
+        x = x.mean(axis=1)
+    if np.issubdtype(np.asarray(data).dtype, np.integer):
+        info = np.iinfo(np.asarray(data).dtype)
+        if np.asarray(data).dtype == np.uint8:
+            return (x - 128.0) / 128.0
+        return x / -float(info.min)
+    return x
+
+
+def true_peak_dbtp(x: np.ndarray,
+                   oversample: int = TRUE_PEAK_OVERSAMPLE,
+                   block: int = 1 << 20) -> float:
+    """Inter-sample true peak in dB relative to digital full scale (dBTP).
+
+    THE PHYSICS, because the whole point is that this survives a codec where
+    `clipped_fraction` does not. A lossy codec is a frequency-domain
+    quantiser: it band-limits and re-synthesises the waveform. Band-limiting a
+    signal with flat tops is exactly the conditions for Gibbs ringing, so the
+    reconstruction OVERSHOOTS the level the original was sliced at. The
+    sample-level evidence (bit-identical neighbours) is destroyed; the
+    overshoot is *created* by the same operation. So a clipped recording comes
+    out of a codec reaching or exceeding 0 dBFS, and an unclipped one, which
+    had headroom before encoding, still has headroom after.
+
+    Reconstructing between samples matters, and that is what `oversample`
+    does — it is the standard true-peak measurement of ITU-R BS.1770-4 /
+    EBU R128, which exists for this exact reason. It is needed here because
+    `fridge_scan.py`, `fan_experiment.py` and `check_phone_audio.py` all let
+    ffmpeg decode to its default 16-bit PCM, which HARD-LIMITS the decoded
+    overshoot back to +-1.0 and would otherwise hide it (measured below).
+
+    MEASURED, 2026-08-30, all through a real ffmpeg AAC 128 kbps round trip.
+    "flat-top" is `clipped_fraction`; the 0.001 warning floor is in brackets:
+
+        signal                              flat-top          true peak
+        ------------------------------------------------------------------
+        real fan audio, ADC-clipped         0.00165 (marginal)   +3.27 dBTP
+          ... same file, decoded to f32     0.00000 (MISSED)     +3.27 dBTP
+        broadband noise, ADC-clipped        0.00046 (MISSED)     +6.31 dBTP
+        137 Hz sine, ADC-clipped            0.00034 (MISSED)     +0.05 dBTP
+
+    and the negative controls, none of which may be flagged:
+
+        real fan audio, 6 dB headroom       0.00000              -5.72 dBTP
+        clean 137 Hz sine at full scale     0.00000              -0.00 dBTP
+        `data/normal.wav`                   0.00000              -0.85 dBTP
+        `data/bearing_inner.wav`            0.00000              -0.91 dBTP
+        the six real phone recordings
+          behind RESULTS.md Experiment 0    0.00000     -11.0 to -27.7 dBTP
+
+    ⚠ THE REMAINING BLIND SPOT, stated so nobody reads this as solved: a
+    clipped PURE TONE clears the threshold by 0.05 dB, against 3-6 dB for
+    anything broadband. Tones are the one case where clipping adds almost no
+    inter-sample overshoot, because the waveform between the plateaux is
+    already smooth and narrowband. Real machine audio is broadband, which is
+    the case this is for; a clipped test tone is not reliably caught and
+    `clipped_fraction` is the test that covers it (exactly, on WAV input).
+
+    A FOURTH FIX WAS TRIED AND MEASURED COUNTERPRODUCTIVE: making the
+    converters decode to `pcm_f32le` so the overshoot is not hard-limited.
+    It makes `clipped_fraction` STRICTLY WORSE — on the realistic case above
+    it goes 0.00165 (warned) -> 0.00000 (missed), because 16-bit re-clipping
+    is precisely what accidentally restores some bit-identical neighbours.
+    True peak reads +3.27 dBTP under either decode, so it needs no change to
+    any converter. The converters were therefore left alone.
+
+    Returns -inf for an empty or all-zero signal. `x` must be scaled so that
+    +-1.0 is digital full scale — measure it on the samples as read, BEFORE
+    any peak normalisation, or the answer is 0.0 dBTP for every input.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    if x.size == 0:
+        return float("-inf")
+    peak = float(np.max(np.abs(x)))
+    # Oversample in blocks: a 25-minute 16 kHz recording is 24M samples, and
+    # 4x upsampling all of it at once would allocate ~800 MB on a Pi.
+    if oversample > 1 and x.size >= 64:
+        from scipy.signal import resample_poly
+        pad = 64  # discard the filter's edge transient at each block seam
+        for s in range(0, x.size, block):
+            seg = x[max(0, s - pad):min(x.size, s + block + pad)]
+            if seg.size < 64:
+                continue
+            up = resample_poly(seg, oversample, 1)
+            trim = pad * oversample
+            up = up[trim:-trim] if up.size > 2 * trim else up
+            if up.size:
+                peak = max(peak, float(np.max(np.abs(up))))
+    if peak <= 0:
+        return float("-inf")
+    return float(20.0 * np.log10(peak))
 
 
 def comb_score(freqs: np.ndarray, mag: np.ndarray, f0: float,
@@ -280,13 +406,22 @@ def averaged_envelope_spectrum(x: np.ndarray, fs: float, band, win_s: float
 
 def screen(x: np.ndarray, fs: float, mains: float = 50.0,
            fr: float | None = None, top: int = 5,
-           win_s: float = 10.0) -> dict:
+           win_s: float = 10.0, true_peak: float | None = None) -> dict:
     """Search for the strongest non-trivial harmonic comb in one recording.
 
     Windows longer than `win_s` are split and their envelope spectra averaged
     (see `averaged_envelope_spectrum`). Short recordings fall back to a single
     transform, which is what makes this usable on a 20-second clip as well as
     a 40-minute one.
+
+    `true_peak` is the recording's true peak in dBTP, measured by
+    `true_peak_dbtp()` on the samples AS READ FROM THE FILE — before the peak
+    normalisation `main()` applies. It cannot be computed in here, and that is
+    not an oversight: by the time a signal reaches `screen()` it has usually
+    been normalised to peak 1.0, which makes its true peak 0 dBTP whatever the
+    recording actually was. Callers that have not measured it pass None, and
+    the result then reports `true_peak_dbtp: None` and
+    `true_peak_clipping_suspected: False` — "not measured", not "clean".
     """
     # ---- input validation, before any maths -------------------------------
     # Both of these were found by an adversarial pass, and both are silent
@@ -320,6 +455,13 @@ def screen(x: np.ndarray, fs: float, mains: float = 50.0,
             f"information is already gone.")
 
     clipped_frac = clipped_fraction(x)
+    # Two independent clipping tests, because neither covers the other's case:
+    # the flat-top rule is exact on un-transcoded WAV and blind after a lossy
+    # codec; true peak survives the codec (that is what creates the overshoot
+    # it measures) but is marginal on pure tones. Warn on either.
+    tp_suspected = (true_peak is not None
+                    and np.isfinite(true_peak)
+                    and true_peak >= TRUE_PEAK_WARN_DBTP)
 
     band, band_crest = select_demodulation_band(
         x[:int(win_s * fs)] if len(x) > win_s * fs else x, fs, crest_floor=0.0)
@@ -399,7 +541,11 @@ def screen(x: np.ndarray, fs: float, mains: float = 50.0,
             "best_unflagged_f0": clean[0][0] if clean else None,
             "best_unflagged_score": clean[0][1] if clean else 0.0,
             "clipped_fraction": clipped_frac,
-            "clipping_suspected": clipped_frac > CLIP_FRAC_WARN,
+            "clipping_suspected": (clipped_frac > CLIP_FRAC_WARN
+                                   or tp_suspected),
+            "flat_top_clipping_suspected": clipped_frac > CLIP_FRAC_WARN,
+            "true_peak_dbtp": true_peak,
+            "true_peak_clipping_suspected": tp_suspected,
             "band_energy_ratio": band_ratio,
             "degenerate_band": degenerate}
 
@@ -429,9 +575,16 @@ def main(argv=None) -> int:
     x = data.astype(np.float64)
     if x.ndim > 1:
         x = x.mean(axis=1)
+
+    # Measure the true peak on the samples as read, scaled so +-1.0 is digital
+    # full scale — BEFORE the normalisation below.
+    tp = true_peak_dbtp(full_scale_float(data))
+
+    # Only now normalise. The true peak of a peak-normalised signal is 0 dBTP
+    # by construction, so measuring it after this line would flag everything.
     x /= (np.max(np.abs(x)) + 1e-12)
 
-    r = screen(x, float(fs), mains=args.mains, fr=args.fr)
+    r = screen(x, float(fs), mains=args.mains, fr=args.fr, true_peak=tp)
 
     print(f"\ndemodulation band : {r['band'][0]:.0f}-{r['band'][1]:.0f} Hz "
           f"(crest {r['band_crest']:.1f})")
@@ -446,9 +599,18 @@ def main(argv=None) -> int:
               f"      pure tone, or a codec that removed the high end. Check "
               f"the recording first.")
 
+    if r["true_peak_dbtp"] is not None:
+        print(f"true peak         : {r['true_peak_dbtp']:+.2f} dBTP "
+              f"(warn at {TRUE_PEAK_WARN_DBTP:+.1f})")
+
     if r["clipping_suspected"]:
-        print(f"\n  !!  CLIPPING SUSPECTED — {100 * r['clipped_fraction']:.2f}% "
-              f"of samples at full scale.\n"
+        how = ("flat tops in the waveform"
+               if r["flat_top_clipping_suspected"] else
+               f"true peak {r['true_peak_dbtp']:+.2f} dBTP — the recording "
+               f"reaches digital full scale")
+        print(f"\n  !!  CLIPPING SUSPECTED — {how}; "
+              f"{100 * r['clipped_fraction']:.2f}% "
+              f"of samples on a flat top.\n"
               f"      Do not trust any score below. Clipping turns waveform "
               f"peaks into flat tops,\n"
               f"      which is a square wave, which is a harmonic series — the "
