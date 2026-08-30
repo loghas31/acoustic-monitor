@@ -43,8 +43,10 @@ for _p in (ROOT / "tools", ROOT / "firmware", ROOT / "ml" / "realdata"):
 from scipy.io import wavfile                             # noqa: E402
 
 from cold_start_screen import (                          # noqa: E402
-    CLIP_FRAC_WARN, TRUE_PEAK_WARN_DBTP, clipped_fraction, full_scale_float,
-    is_mains_related, screen, true_peak_dbtp)
+    CLIP_FRAC_WARN, F0_HI, F0_LO, MAINS_REJECT_HZ, N_HARMONICS, TOL_HZ,
+    TRUE_PEAK_WARN_DBTP, _is_ratio_alias, clipped_fraction, comb_score,
+    dominant_comb_bin, full_scale_float, is_mains_related, screen,
+    true_peak_dbtp)
 from fault_frequencies import lookup, rpm_to_hz          # noqa: E402
 from synth_phone_recording import make_pair              # noqa: E402
 
@@ -475,3 +477,168 @@ def test_a_real_aac_round_trip_behaves_as_the_emulation_predicts(tmp_path):
     tp = true_peak_dbtp(x)
     assert tp >= TRUE_PEAK_WARN_DBTP, f"real AAC: {tp:+.2f} dBTP should warn"
     assert screen(x, float(fs_out), true_peak=tp)["clipping_suspected"]
+
+
+# ---------------------------------------------------------------------------
+# T1.16 items 5 and 6 — alias collapse.
+#
+# The bug: the near-duplicate test asked only whether a candidate was an
+# integer MULTIPLE of an accepted peak, so sub-multiples survived. Real
+# shipped output on `bearing_inner` was 49.25, 16.25, 10.25, 12.50, 24.75 Hz —
+# row 1 plus four of its own sub-harmonics, all of them resting on the SAME
+# 50 Hz line — and because a comb built on the mains line is correctly flagged
+# whichever sub-multiple it wears, every row was flagged and
+# `best_unflagged_f0` was None (item 6's symptom).
+# ---------------------------------------------------------------------------
+
+
+def _subharmonic_aliases_of_the_top_row(peaks) -> list[float]:
+    """Rows whose comb meets row 1's comb inside the detector's own tolerance.
+
+    TOL_HZ, not a ratio: the comb detector accepts a harmonic within +/-TOL_HZ,
+    so that is the only defensible definition of "these two describe the same
+    line". Ratios are the wrong currency here — see `_is_ratio_alias`.
+    """
+    top = peaks[0][0]
+    out = []
+    for f0, _, _ in peaks[1:]:
+        for k in range(2, N_HARMONICS + 1):
+            if abs(k * f0 - top) <= TOL_HZ or abs(f0 - k * top) <= TOL_HZ:
+                out.append(f0)
+                break
+    return out
+
+
+def test_the_top_table_is_not_five_aliases_of_one_peak(sim_wavs):
+    """THE BUG (T1.16 item 5). Before the fix this returned four aliases:
+    16.25, 10.25, 12.50 and 24.75 Hz, every one of them a sub-multiple of the
+    49.25 Hz row above it. A top-5 table that is one peak counted five times
+    tells the reader nothing about the machine."""
+    x, fs = _load(sim_wavs, "bearing_inner")
+    peaks = screen(x, fs)["peaks"]
+    aliases = _subharmonic_aliases_of_the_top_row(peaks)
+    assert not aliases, (
+        f"rows {aliases} are aliases of {peaks[0][0]:.2f} Hz; the table should "
+        f"hold distinct candidates. Full table: {[round(p[0], 2) for p in peaks]}")
+
+
+def test_the_flag_column_carries_information_on_a_real_fault(sim_wavs):
+    """T1.16 item 6's symptom. With every row an alias of one mains-resting
+    peak, every row was flagged and the whole point of annotating rather than
+    discarding was lost — `best_unflagged_*` had nothing to report. Note the
+    fix for this is item 5's; item 6's own prescription was already in the
+    code (see the test below)."""
+    r = screen(*_load(sim_wavs, "bearing_inner"))
+    assert r["best_unflagged_f0"] is not None, (
+        "every candidate flagged as mains — the flag column is carrying no "
+        f"information: {[(round(p[0], 2), bool(p[2])) for p in r['peaks']]}")
+    assert r["best_unflagged_score"] > 0.0
+
+
+def test_collapsing_aliases_never_moves_the_top_ranked_candidate(sim_wavs):
+    """The fix must not cost anything. Row 1 has nothing to be collapsed
+    against, so the headline numbers RESULTS.md quotes cannot move — pinned
+    here against a future collapse rule aggressive enough to eat them.
+    Measured before and after the change: 39.6 at 49.25 Hz (inner), 33.0 at
+    152.25 Hz (outer, true BPFO 152.25)."""
+    for name, f0, score in (("bearing_inner", 49.25, 39.6),
+                            ("bearing_outer", 152.25, 33.0)):
+        r = screen(*_load(sim_wavs, name))
+        assert abs(r["best_f0"] - f0) < 0.3, f"{name}: {r['best_f0']}"
+        assert abs(r["best_score"] - score) < 0.5, f"{name}: {r['best_score']}"
+
+
+def test_the_reciprocal_ratio_test_alone_would_not_have_fixed_this(sim_wavs):
+    """LOAD-BEARING, and the most useful thing in this block.
+
+    T1.16 item 5 prescribed "test `p/f0` as well as `f0/p`". That was measured
+    INSUFFICIENT before being shipped: on this exact file it changes one row
+    of four (24.75 -> 25.25) and leaves the table still full of aliases, still
+    entirely mains-flagged. A relative tolerance cannot express "the same line
+    within +/-1.5 Hz" on a 0.25 Hz grid — 3 x 16.25 = 48.75 is 0.5 Hz from the
+    49.25 row, well inside the comb tolerance, but 0.031 in ratio terms, over
+    the 0.02 the test uses.
+
+    So this reconstructs the ratio-only collapse and asserts it STILL fails.
+    If someone deletes `dominant_comb_bin` believing the ratio test is enough,
+    this test is what tells them otherwise."""
+    x, fs = _load(sim_wavs, "bearing_inner")
+    r = screen(x, fs)
+    freqs, mag = r["_spectrum"]
+    ratio_only = []
+    for f0, s, flag in r["_scored"]:
+        if any(_is_ratio_alias(f0, p) for p, _, _ in ratio_only):
+            continue
+        ratio_only.append((f0, s, flag))
+        if len(ratio_only) >= 5:
+            break
+    aliases = _subharmonic_aliases_of_the_top_row(ratio_only)
+    assert aliases, (
+        "the ratio test alone now suffices, which contradicts the measurement "
+        "this fix was built on — re-measure before simplifying the collapse")
+    assert all(p[2] for p in ratio_only), (
+        "ratio-only collapse used to leave every row mains-flagged")
+    assert len(freqs) == len(mag)
+
+
+def test_dominant_comb_bin_names_the_line_a_score_actually_rests_on():
+    """The collapse rule needs no tolerance because this is exact: it returns
+    the bin behind the largest term in `comb_score`'s mean. Here one huge line
+    at 100 Hz and nothing else, so a comb at 100, at 50 (2nd harmonic) and at
+    25 (4th harmonic) must all name the same bin — which is precisely why the
+    latter two are not independent evidence."""
+    freqs = np.arange(1.0, 600.0, 0.5)
+    mag = np.full_like(freqs, 1.0)
+    line = int(np.argmin(np.abs(freqs - 100.0)))
+    mag[line] = 500.0
+    assert dominant_comb_bin(freqs, mag, 100.0) == line
+    assert dominant_comb_bin(freqs, mag, 50.0) == line
+    assert dominant_comb_bin(freqs, mag, 25.0) == line
+    assert dominant_comb_bin(freqs, mag, 137.0) != line
+    assert dominant_comb_bin(freqs, mag, 5000.0) is None
+
+    # ...and the thing that makes those three combs indistinguishable in the
+    # first place: averaging does NOT stop one enormous line from winning.
+    # `comb_score`'s docstring claims "a single enormous line should NOT beat
+    # five moderate ones"; measured here it beats them by ~17x.
+    assert comb_score(freqs, mag, 25.0) > 15 * comb_score(freqs, mag, 137.0)
+
+
+def test_a_sub_multiple_is_an_alias_in_both_directions():
+    """Unit form of the fix. The old test only had the first of these."""
+    assert _is_ratio_alias(150.0, 50.0)      # multiple — always worked
+    assert _is_ratio_alias(50.0, 150.0)      # sub-multiple — the bug
+    assert _is_ratio_alias(49.6, 50.0)       # adjacent bins
+    assert not _is_ratio_alias(73.65, 50.0)  # a genuinely different comb
+    assert not _is_ratio_alias(50.0, 73.65)
+    assert not _is_ratio_alias(50.0, 0.0)    # degenerate input, no crash
+
+
+def test_the_mains_sub_harmonic_tolerance_already_scales_as_one_over_k():
+    """A REFUTATION, pinned. T1.16 item 6 asked for the sub-harmonic tolerance
+    to "scale as 1.5/k, which is the physically correct slop". It already
+    does: `abs(k*f0 - mains) <= tol` IS `abs(f0 - mains/k) <= tol/k`. This
+    pins the equivalence across the whole real candidate range, and pins that
+    the alternative the row evidently feared — a fixed 1.5 Hz slop in f0-space
+    around each mains sub-harmonic — is a materially different, looser rule.
+
+    Recorded rather than quietly dropped, per BACKLOG rule 9: a review that
+    only confirms its author is not a review, and that cuts both ways."""
+    grid = np.arange(F0_LO, F0_HI + 0.05, 0.05)
+    ks = range(2, 9)
+
+    def scaled(f):
+        return (any(abs(f - k * 50.0) <= MAINS_REJECT_HZ for k in range(1, 9))
+                or any(abs(f - 50.0 / k) <= MAINS_REJECT_HZ / k for k in ks))
+
+    def fixed(f):
+        return (any(abs(f - k * 50.0) <= MAINS_REJECT_HZ for k in range(1, 9))
+                or any(abs(f - 50.0 / k) <= MAINS_REJECT_HZ for k in ks))
+
+    shipped = np.array([is_mains_related(float(f), 50.0) for f in grid])
+    assert np.array_equal(shipped, np.array([scaled(f) for f in grid])), (
+        "the shipped rule is no longer the 1.5/k form")
+    over = np.array([fixed(f) for f in grid]) & ~shipped
+    assert over.sum() == 153, (
+        f"expected the fixed-slop form to over-flag 153 of {len(grid)} "
+        f"candidates, got {over.sum()}")

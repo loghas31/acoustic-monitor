@@ -3,7 +3,40 @@
 Companion to the system overview (not in this public copy) §7. **Keep this file honest.** It is
 the difference between an engineering project and a demo.
 
-Last updated: 2026-08-30, T1.16 #1. **A claim in this project's own tooling
+Last updated: 2026-08-30, T1.16 #5 (second run that day). **The cold-start
+screen's top-5 table was one peak counted five times, and the fix's real
+lesson is about the review that filed it.** On `data/bearing_inner.wav` the
+tool reported 49.25 / 16.25 / 10.25 / 12.50 / 24.75 Hz at 39.6 / 35.4 / 34.7 /
+34.4 / 34.3 — four sub-multiples of the first row, every one of them resting
+on the same 50.00 Hz envelope line (**149.6×** the noise floor, against 5-8×
+for every other harmonic any of them touched), so all five were correctly
+mains-flagged and `best_unflagged_f0` came back `None`. The near-duplicate
+collapse tested only integer *multiples*. **The backlog row's own prescribed
+fix was measured insufficient before shipping** — adding the reciprocal
+`p/f0` test changes ONE alias row of four and leaves the table 5/5 flagged,
+because a relative 0.02 tolerance cannot express "within ±1.5 Hz on a 0.25 Hz
+grid". Fixed instead by also collapsing candidates whose score rests on a line
+an accepted peak already claimed, which needs no tolerance. **Row 1 cannot
+move and was confirmed not to**: 39.6 @ 49.2 (inner) and 33.0 @ 152.2 (outer,
+true BPFO 152.25) unchanged, `RESULTS.md` Experiment 0 reproduced
+bit-identically. Companion item T1.16 #6 was **REFUTED**: the `1.5/k`
+tolerance it asked for is already what the shipped code computes — identical
+output on all 5841 candidates of the real grid, differing from a fixed-1.5
+form on 153. Suite 694 → **701**. Full detail: the task backlog (not in this public copy) T1.16 #5/#6 +
+Run log, `docs/DOC_SELF_REVIEW.md` F29. **Two residuals, stated plainly.**
+(1) `comb_score`'s docstring claims averaging stops one enormous line beating
+five moderate ones; measured, it does not (149.6/5 = 29.9 vs ~6, a 5× win for
+the single line). Filed as T1.16 #15, not fixed — changing the statistic moves
+every number in `RESULTS.md` and `DOC_SENSITIVITY.md`. (2) The post-fix suite
+re-run reached **24 of 46 test files (304 passed, 3 skipped, 0 failed)** before
+the sandbox hit the documented ENOSPC wedge; `tests/test_fridge_scan.py` and
+21 other files were **not** re-verified after the fix. `test_fridge_scan.py`
+asserts only an exit code and the presence of the string `"[cold-start
+screen]"` — it inspects no frequency, score or flag — so there is no
+code-path by which this change reaches it, but that is an inference, not a
+measurement.
+
+Previous update: 2026-08-30, T1.16 #1. **A claim in this project's own tooling
 moved from "warned about" to "actually detectable".** `cold_start_screen.py`'s
 clipping guard was blind to every lossy recording — i.e. to every phone
 recording, which is the only real input this project has. Measured through a
@@ -22,7 +55,7 @@ gain almost no overshoot from clipping — so tonal clipping is caught only by
 the original flat-top test, and only on un-transcoded WAV. Not closed, not
 hidden.
 
-Previous update: 2026-08-29, F25. `tools/fridge_scan.py` cleared its per-stem
+Earlier update: 2026-08-29, F25. `tools/fridge_scan.py` cleared its per-stem
 `data/_scan_work/<stem>` working directory with `shutil.rmtree()`, which this
 project's sandboxed dev environment refuses to execute at all — confirmed
 directly (a plain shell `rm -rf` on the identical directory fails the same

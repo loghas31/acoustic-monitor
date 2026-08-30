@@ -52,6 +52,101 @@ first. Then reference it from anywhere else.
 
 ---
 
+## F29 — The screen's top-5 table was one peak counted five times; and F29b, the review item filed alongside it was a misdiagnosis ✅ FIXED / ❌ REFUTED (T1.16 #5 and #6, 2026-08-30)
+
+Filed by the 2026-08-28 adversarial review as T1.16 items 5 and 6, which that
+review and the 2026-08-30 T1.16 #1 run both described as "one bug seen twice".
+Half of that was right.
+
+**F29 — the bug (item 5), confirmed.** `screen()`'s near-duplicate collapse
+asked only whether a candidate was an integer *multiple* of an already-accepted
+peak, so every sub-multiple survived. Reproduced before touching anything, on
+`data/bearing_inner.wav`:
+
+    49.25 Hz  39.6   <- coincides with mains 50 Hz
+    16.25 Hz  35.4   <- coincides with mains 50 Hz
+    10.25 Hz  34.7   <- coincides with mains 50 Hz
+    12.50 Hz  34.4   <- coincides with mains 50 Hz
+    24.75 Hz  34.3   <- coincides with mains 50 Hz
+    best_unflagged_f0 = None
+
+**Why it happens, measured rather than reasoned about.** The envelope spectrum
+of that recording has a single line at 50.00 Hz standing **149.6×** above the
+median noise floor. `comb_score` averages `mag/floor` over five harmonics, so
+*any* candidate whose comb touches that one line scores at least 149.6/5 =
+29.9, while a genuine five-tooth comb of moderate peaks scores about 6. The
+five rows are therefore not five hypotheses; they are the five best ways to
+reach one line. Every other harmonic any of them touched measured 5-8×, i.e.
+noise:
+
+    f0=49.25  k1@50.00:149.6  k2@100.00:6.9  k3@147.50:7.9  k4@197.50:19.2
+    f0=16.25  k1@16.10:6.6    k2@31.60:7.7   k3@50.00:149.6 k4@65.60:6.4
+    f0=10.25  k1@11.60:5.9    k2@19.10:5.4   k3@31.60:7.7   k5@50.00:149.6
+
+**The prescribed fix was tried first and measured insufficient.** Item 5 said
+"test `p/f0` as well as `f0/p`". Applied literally it changes exactly ONE of
+the four alias rows (24.75 → 25.25); the table remains full of aliases and
+remains 5/5 mains-flagged, so `best_unflagged_*` is still `None`. The reason
+is that a *relative* tolerance is the wrong currency: the candidate grid is
+0.25 Hz and the true line is at 50.00, so the k=3 alias lands at 16.25, whose
+ratio error against 49.25 is 0.031 — over the 0.02 the test uses — even though
+3 × 16.25 = 48.75 is only 0.5 Hz away, comfortably inside the ±1.5 Hz
+`comb_score` itself accepts. This is the same shape as F27/T3.1 eight days
+earlier: a row's cheapest suggested fix would have closed the item with the
+bug live behind slightly different numbers.
+
+**What was shipped.** `dominant_comb_bin()` returns the bin behind the largest
+term in a candidate's score, and `screen()` now also drops a candidate whose
+dominant bin was already claimed by an accepted peak. This needs no tolerance
+constant at all — two candidates either did or did not win on the same bin —
+and it generalises past integer ratios (on `data/imbalance.wav` it correctly
+collapses a 5:2 alias that neither ratio arm catches). The `p/f0` arm was kept
+as well, in `_is_ratio_alias`, deliberately written as an exact superset of the
+old test so nothing that used to collapse stops collapsing.
+
+**Verified not to cost anything.** Row 1 has nothing to be collapsed against,
+so the headline numbers cannot move, and they were confirmed not to: 39.6 @
+49.2 (inner) and 33.0 @ 152.2 (outer, true BPFO 152.25); `RESULTS.md`
+Experiment 0 re-ran bit-identically (1.9 / 20.4 / 5.3 at 9.2 / 25.8 / 15.0 Hz);
+`fan_experiment.py --self-check` PASS at 73.5 Hz against a true 73.65. After
+the fix `best_unflagged_f0` on `bearing_inner` is 39.5 Hz at score 7.6 — which
+is the *honest* answer, not a better one: it says the best non-mains candidate
+is noise-level, which is what that recording supports.
+
+**F29b — item 6, REFUTED.** Item 6 read: "`is_mains_related`'s sub-harmonic
+loop flags everything near `50/k`; the tolerance should scale as `1.5/k`,
+which is the physically correct slop." The tolerance already scales as
+`1.5/k`. The shipped arm is `abs(k*f0 - mains) <= tol`, which is
+`abs(f0 - mains/k) <= tol/k` rearranged — the slop is applied at the harmonic
+where the two combs meet, the same place `comb_score` applies its own ±TOL_HZ,
+so the flag and the score agree about "near" by construction. Measured across
+the entire real candidate range (8-300 Hz at 0.05 Hz, n = 5841) rather than
+argued algebraically: the shipped function's output is identical on every
+candidate to the explicit `1.5/k` form, and differs from a fixed-1.5 form on
+**153** candidates, which that looser form would over-flag. Item 6's *symptom*
+(every row flagged) was real and was item 5's bug; its *prescription* was a
+no-op. Recorded here rather than quietly dropped — a review that only confirms
+its author is not a review, and that has to cut both ways.
+
+**A third thing, found while proving the above, filed not fixed.**
+`comb_score`'s docstring says: "Averaging rather than summing matters: a
+single enormous line (mains, a resonance) should NOT beat five moderate ones."
+Measured, it does not deliver that — 149.6/5 = 29.9 against ~6 is a 5× win for
+the single line. Averaging bounds the damage relative to summing but the
+stated property is false. Filed as T1.16 #15 and pinned by a test; not changed
+here, because any change to the statistic moves every number in `RESULTS.md`
+and `docs/DOC_SENSITIVITY.md`, and that same docstring already records two
+alternatives measured worse.
+
+**Tests.** 7 added to `tests/test_cold_start_screen.py` (40 → 47; suite 694 →
+701). Verified FAILS-ON-OLD-CODE against a copy of the working tree with only
+the collapse block reverted — helpers and diagnostic keys retained, so the
+failures isolate the behaviour change instead of being import errors: **2
+failed, 5 passed** on old code, with the failure message reproducing the
+shipped table verbatim, and 7/7 against the fix.
+
+---
+
 ## F28 — The clipping guard was blind to every lossy recording, and a clipped HEALTHY machine reads as a fault ✅ FIXED (T1.16 #1, 2026-08-30)
 
 Filed by the 2026-08-28 adversarial review as T1.16 #1 and left open for two

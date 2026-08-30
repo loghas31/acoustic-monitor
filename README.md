@@ -3,7 +3,36 @@
 Detecting mechanical faults in rotating machinery from sound, with no prior
 data about the machine being monitored.
 
-Python · NumPy/SciPy · scikit-learn · pytest · FastAPI · React · 693 tests
+Python · NumPy/SciPy · scikit-learn · pytest · FastAPI · React · 700 tests
+
+<!--
+COUNT MAINTAINERS, READ THIS BEFORE EDITING THE THREE TEST COUNTS BELOW.
+
+This file becomes the public repository's README.md, and `tests/test_docs_current.py`
+travels with it — so the two counts in this file (the `pytest tests/` comment
+under "Run it yourself" and the `tests/` row in the repository map) are pinned
+by that guard exactly as the private README's are. A stale number here does not
+just look untidy: it turns the public repo's CI red on the next push.
+
+The public count is NOT the private one. `tests/test_navigation.py` parametrises
+over its root-document set, and the split script drops one entry from that set,
+so the public suite collects exactly ONE FEWER test than the private suite.
+That offset is the whole reason this number has to be maintained separately.
+
+700 is derived, not measured: the last CI-measured public count was 693, and
+seven tests have been added to tests/test_cold_start_screen.py since. Treat the
+first green CI run after a push as the real measurement, and correct this number
+to whatever it prints. An inferred number where a measured one is two CI minutes
+away is a mistake this project has already made once.
+-->
+
+
+---
+
+**Mean ROC AUC 0.94 on real industrial fans from the DCASE 2020 Task 2
+dataset, against a published baseline of 0.65** — learning from normal sound
+only, with no geometry or model number supplied. The caveats that belong in
+the same breath are below.
 
 ---
 
@@ -99,6 +128,46 @@ them agree with a completely different transform to about 1%, having their
 ratio equal a blade count counted by eye, and holding a threshold across a
 change of operating point. No ear does any of that.
 
+### Validated on machines it had never seen
+
+The fan above is one device in one room. This is 3,675 training clips and
+1,875 test clips of **real industrial fans recorded by other people**, labelled
+normal and anomalous — the DCASE 2020 Challenge Task 2 development set (MIMII),
+four separate fan units. For each unit the detector learns from that unit's
+normal sound only, then scores its test set.
+
+| machine id | false alarms | anomalies caught | ROC AUC | published baseline |
+|---|---|---|---|---|
+| 00 | 15.2% | 86.7% | **0.9443** | 0.5396 |
+| 02 | 3.0% | 79.0% | **0.9654** | 0.7219 |
+| 04 | 27.3% | 97.4% | **0.9715** | 0.6221 |
+| 06 | 21.2% | 77.5% | **0.8702** | 0.7228 |
+| **mean** | **16.7%** | **85.2%** | **0.9379** | **0.6516** |
+
+**Two things have to be said in the same breath as that table.**
+
+**The evaluation unit differs from the challenge's.** The baseline scores each
+10-second clip; this scores 30-second windows — the length the detector
+actually runs on — so roughly three clips of evidence per decision instead of
+one. More evidence should make the task easier, by an amount nobody here has
+measured. This is therefore **not** a like-for-like challenge entry, and
+rerunning at 10-second windows to make it exact has not been done.
+
+**The false-alarm rate is the real finding, and it is bad.** 3.0% to 27.3%
+across four examples of the same model of fan — a factor of nine. AUC says the
+*ranking* generalises across units; that spread says the *threshold
+calibration* does not. In a real deployment, 27% of windows alarming on a
+healthy machine is what gets a monitoring system switched off, whatever the
+AUC is.
+
+One control worth naming: splicing 10-second clips into 30-second windows
+creates artificial joins that an impact-hunting detector could lock onto.
+Removing the crossfade entirely (`--fade-ms 0`) moved AUC from 0.9443 to
+0.9439 and left both rates identical. The joins are not doing the work.
+
+Full protocol, per-unit numbers and limitations: **[RESULTS.md](RESULTS.md)**,
+Experiment 1. The dataset is CC BY-NC-SA 4.0 (NonCommercial).
+
 ### What this does not show
 
 - **One machine, one room, one afternoon.** Two speeds, but a single device.
@@ -165,7 +234,7 @@ No hardware, no recordings needed — about ten minutes:
 pip install -r ml/requirements.txt
 python ml/simulate.py --outdir data          # generate test signals
 python tools/cold_start_screen.py --self-test
-pytest tests/                                 # 693 tests
+pytest tests/                                 # 700 tests
 ```
 
 [RUN_IT.md](docs/RUN_IT.md) walks through the whole pipeline on synthetic
@@ -263,7 +332,7 @@ first if you only read one.
 | `tools/` | the analysis command line: cold-start screen, one-command scan, experiment harnesses |
 | `backend/` | FastAPI + SQLAlchemy service, MQTT bridge, alert dispatch |
 | `frontend/` | React dashboard |
-| `tests/` | 693 tests, run on every push |
+| `tests/` | 700 tests, run on every push |
 | `docs/` | physics, pipeline, detector, alerting, sensitivity — and the findings register |
 
 ---

@@ -365,6 +365,22 @@ def is_mains_related(f0: float, mains: float, tol: float = MAINS_REJECT_HZ) -> b
     Both directions matter. 50 Hz obviously must go. But so must 25 Hz, whose
     2nd harmonic IS the mains line — a comb built mostly out of mains energy
     wearing a lower fundamental as a disguise.
+
+    ON THE SUB-HARMONIC TOLERANCE, because a review asked for a change that is
+    already here. T1.16 item 6 said "the tolerance should scale as 1.5/k, which
+    is the physically correct slop". It already does, and not by accident:
+    `abs(k*f0 - mains) <= tol` is `abs(f0 - mains/k) <= tol/k` rearranged. The
+    slop is applied where the two combs actually meet — at the k-th harmonic —
+    which is the same place `comb_score` applies its own +/-TOL_HZ, so the flag
+    and the score agree about what "near" means by construction.
+
+    Measured 2026-08-30 across the whole real candidate grid (8-300 Hz, 0.05 Hz
+    steps, n=5841): this function's output is IDENTICAL to the explicit
+    `abs(f0 - mains/k) <= tol/k` form on every candidate, and differs from a
+    fixed `abs(f0 - mains/k) <= tol` form on 153 of them, which that form would
+    over-flag. So item 6's prescription was a no-op; its *symptom* (every row
+    of the top-5 table flagged) was a consequence of item 5 and went away when
+    item 5 was fixed. See `_is_ratio_alias` below.
     """
     if f0 <= 0 or mains <= 0:
         return False
@@ -373,6 +389,77 @@ def is_mains_related(f0: float, mains: float, tol: float = MAINS_REJECT_HZ) -> b
             return True
     for k in range(2, 9):
         if abs(k * f0 - mains) <= tol:
+            return True
+    return False
+
+
+def dominant_comb_bin(freqs: np.ndarray, mag: np.ndarray, f0: float,
+                      n_harm: int = N_HARMONICS,
+                      tol: float = TOL_HZ) -> int | None:
+    """Index of the single spectral line that contributes most to f0's score.
+
+    `comb_score` averages `mag/floor` over the harmonics of f0. This returns
+    the bin behind the largest of those terms — the one line the candidate's
+    score mostly rests on. Returns None if no harmonic of f0 lands in range.
+
+    Used to collapse aliases (see `screen`). Two candidates that win on the
+    SAME line are not two pieces of evidence; they are one line described two
+    ways.
+    """
+    best: int | None = None
+    best_mag = -np.inf
+    for k in range(1, n_harm + 1):
+        target = k * f0
+        if target > freqs[-1]:
+            break
+        sel = np.abs(freqs - target) <= tol
+        if not sel.any():
+            continue
+        j = int(np.argmax(np.where(sel, mag, -np.inf)))
+        if mag[j] > best_mag:
+            best_mag = float(mag[j])
+            best = j
+    return best
+
+
+def _is_ratio_alias(f0: float, p: float, rel_tol: float = 0.02) -> bool:
+    """True if candidate f0 is an adjacent bin, a multiple, OR a sub-multiple of p.
+
+    THE BUG THIS FIXES (T1.16 item 5). The original test was one-directional:
+    it asked whether `f0/p` was near an integer, which catches f0 = 2p, 3p...
+    but never f0 = p/2, p/3... A comb at p/k passes through every tooth of p,
+    so sub-multiples are exactly the aliases you get, and they are what the
+    real output was full of: `data/bearing_inner.wav` reported 49.25, 16.25,
+    10.25, 12.50, 24.75 Hz — four sub-multiples of the first row, presented as
+    five independent candidates.
+
+    THE ROW'S OWN SUGGESTED FIX ("test p/f0 as well as f0/p") IS NOT ENOUGH,
+    and this is the part worth remembering. Measured on that file: adding the
+    reciprocal test changes exactly ONE of the four alias rows (24.75 ->
+    25.25) and leaves the symptom — all five rows still mains-flagged,
+    `best_unflagged_f0` still None. The reason is that a RELATIVE tolerance is
+    the wrong currency. The grid is 0.25 Hz and the true line is at 50.00, so
+    the k=3 alias lands at 16.25 whose ratio error against 49.25 is 0.031 —
+    over this 0.02 — even though 3 x 16.25 = 48.75 is well inside the +/-1.5 Hz
+    the comb detector itself uses. Tightening or loosening `rel_tol` to paper
+    over that just trades misses for false collapses.
+
+    So this test is kept (it is cheap and it is right as far as it goes) and
+    `screen` additionally collapses candidates that share a dominant line —
+    see `dominant_comb_bin`. That second test needs no tolerance at all,
+    because two candidates either did or did not win on the same bin.
+
+    Deliberately an exact SUPERSET of the original test: the `f0/p` arm and the
+    2 Hz adjacency arm are unchanged, so nothing that used to be collapsed
+    stops being collapsed.
+    """
+    if p <= 0 or f0 <= 0:
+        return False
+    if abs(f0 - p) <= 2.0:
+        return True
+    for a, b in ((f0, p), (p, f0)):          # the p/f0 arm is the new one
+        r = a / b
+        if abs(r - round(r)) <= rel_tol:
             return True
     return False
 
@@ -523,12 +610,38 @@ def screen(x: np.ndarray, fs: float, mains: float = 50.0,
 
     scored.sort(key=lambda t: -t[1])
 
-    # Collapse near-duplicate fundamentals (adjacent bins of one true peak).
+    # Collapse aliases of an already-accepted peak (T1.16 items 5 and 6).
+    #
+    # WHAT WAS WRONG. The old test asked only whether the candidate was an
+    # integer MULTIPLE of an accepted peak, so every sub-multiple survived and
+    # the top-5 table filled up with aliases of row 1. On
+    # `data/bearing_inner.wav` the shipped output was 49.25, 16.25, 10.25,
+    # 12.50, 24.75 Hz — one peak and four of its own sub-harmonics — and since
+    # a comb resting on the 50 Hz line is correctly mains-flagged whichever
+    # sub-multiple it wears, all five rows were flagged and `best_unflagged_f0`
+    # came back None. That is item 6's symptom, and it is item 5's bug.
+    #
+    # WHY TWO TESTS AND NOT ONE. `_is_ratio_alias` is a frequency-ratio test
+    # and it is not sufficient on its own — measured, see its docstring. The
+    # second test is exact: if two candidates' scores rest on the SAME
+    # spectral line, the second one is not new evidence. Here the whole table
+    # was five ways of scoring a single line at 50.00 Hz that stands 149.6x
+    # above the noise floor while every other harmonic each candidate touched
+    # was 5-8x, i.e. noise.
+    #
+    # Row 1 is never collapsed (it has nothing to be collapsed against), so
+    # `best_f0`/`best_score` — the numbers RESULTS.md quotes — cannot move.
+    # Only rows 2-5 and the `best_unflagged_*` pair can change.
     peaks: list[tuple[float, float, str]] = []
+    claimed_lines: list[int] = []
     for f0, s, flag in scored:
-        if all(abs(f0 - p) > 2.0 and abs(f0 / p - round(f0 / p)) > 0.02
-               for p, _, _ in peaks):
-            peaks.append((f0, s, flag))
+        if any(_is_ratio_alias(f0, p) for p, _, _ in peaks):
+            continue
+        line = dominant_comb_bin(freqs, mag, f0)
+        if line is not None and line in claimed_lines:
+            continue
+        peaks.append((f0, s, flag))
+        claimed_lines.append(line)
         if len(peaks) >= top:
             break
 
@@ -547,7 +660,15 @@ def screen(x: np.ndarray, fs: float, mains: float = 50.0,
             "true_peak_dbtp": true_peak,
             "true_peak_clipping_suspected": tp_suspected,
             "band_energy_ratio": band_ratio,
-            "degenerate_band": degenerate}
+            "degenerate_band": degenerate,
+            # Diagnostic only, and prefixed to say so. The alias-collapse rule
+            # above cannot be tested from the outside without the ranked list
+            # it consumes and the spectrum it consults — reconstructing either
+            # in a test would mean duplicating band selection and window
+            # averaging, and a test that reimplements the thing it checks
+            # tests nothing. Nothing in `tools/` reads these.
+            "_scored": scored,
+            "_spectrum": (freqs, mag)}
 
 
 def main(argv=None) -> int:

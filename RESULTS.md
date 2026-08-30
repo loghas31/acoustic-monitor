@@ -393,6 +393,139 @@ No window was flagged for clipping, and none had a degenerate demodulation band.
 
 ---
 
+## Experiment 1 — DCASE 2020 Task 2, real industrial fans (2026-08-30)
+
+**The self-baselined detector, on machines nobody here has ever seen, against
+a published third-party baseline.** Everything before this was either
+synthetic or one desk fan in one room. This is 3,675 training clips and 1,875
+test clips of real industrial fans recorded by other people, labelled normal
+and anomalous, from the DCASE 2020 Challenge Task 2 development set (MIMII).
+
+It also closes the largest gap in the project. Experiments 0–0c exercised only
+`cold_start_screen.py`, the baseline-free screen. **This is `firmware/`'s
+per-regime Mahalanobis path — the actual product — and until today it had
+never been run on real audio of any kind.**
+
+### Protocol
+
+```
+python tools/dcase_eval.py data/dcase2020/fan --machine-id <ID>
+```
+
+Four fan units (machine IDs 00, 02, 04, 06). For each: learn 48 windows of
+30 s from that unit's `train/` clips (all normal), fit per-regime Gaussians,
+derive thresholds, then score that unit's `test/` set. No geometry, no rpm, no
+model number, no anomaly examples — the learn period is normal audio only.
+
+### Result
+
+| machine id | regimes | false alarms | anomalies caught | **ROC AUC** |
+|---|---|---|---|---|
+| 00 | 2 | 15.2% | 86.7% | **0.9443** |
+| 02 | 2 | 3.0% | 79.0% | **0.9654** |
+| 04 | 3 | 27.3% | 97.4% | **0.9715** |
+| 06 | 2 | 21.2% | 77.5% | **0.8702** |
+| **mean** | | **16.7%** | **85.2%** | **0.9379** |
+
+Median score against the deployed threshold, across the four units: normal
+0.52–0.77x, anomalous 1.96–4.54x.
+
+### Against the published baseline
+
+The DCASE 2020 Task 2 organisers publish a baseline autoencoder with per-ID
+scores on this exact data:
+
+| machine id | baseline AUC | this detector | difference |
+|---|---|---|---|
+| 00 | 0.5396 | **0.9443** | +0.40 |
+| 02 | 0.7219 | **0.9654** | +0.24 |
+| 04 | 0.6221 | **0.9715** | +0.35 |
+| 06 | 0.7228 | **0.8702** | +0.15 |
+| **mean** | **0.6516** | **0.9379** | **+0.29** |
+
+Higher on every unit, and on id 00 the baseline is barely above chance (0.54)
+where this reads 0.94.
+
+**Read that comparison with the caveat below before quoting it.**
+
+### The comparability caveat, stated before the claim is used
+
+**The evaluation unit is not the same.** The DCASE baseline scores each
+10-second test clip individually. `dcase_eval.py` concatenates clips into
+30-second windows — the window length `firmware/` actually runs on — and
+scores windows: 33 normal and ~120 anomalous decisions per unit, against the
+baseline's 100 and ~360. Roughly three clips of evidence per decision instead
+of one.
+
+**More evidence per decision should make the task easier, and by an unknown
+amount.** So this is not a like-for-like entry in the challenge table. The
+defensible sentence is "on the same data, scored in 30-second windows rather
+than 10-second clips, this detector reaches mean AUC 0.94 where the published
+baseline reaches 0.65" — and then say the two protocols differ. Anyone
+competent will ask about the aggregation within a minute of seeing +0.29, and
+the answer has to be ready rather than discovered in the room.
+
+Quantifying that gap — rerunning at 10-second windows to make the comparison
+exact — is the obvious next experiment and has not been done.
+
+### The clip-splice control, which passed
+
+Concatenating separate 10-second recordings creates artificial joins, and an
+impact-hunting detector could plausibly be locking onto those rather than the
+machine. `--fade-ms 0` removes the crossfade entirely:
+
+| | with 5 ms fade | with no fade |
+|---|---|---|
+| ROC AUC (id 00) | 0.9443 | 0.9439 |
+| false alarms | 15.2% | 15.2% |
+| anomalies caught | 86.7% | 86.7% |
+
+**Unchanged to four decimal places on the AUC, identical on both rates.** The
+joins are not doing the work.
+
+### What is wrong with this result, and it is not the AUC
+
+**The false-alarm rate is 3.0% to 27.3% depending on which unit you point it
+at — a factor of nine, across four examples of the same model of fan.** AUC
+measures whether the *ranking* is good. These rates measure whether the
+*threshold* is right, and the spread says it is not: the ranking generalises
+across units and the calibration does not. On a real deployment, 27% of
+30-second windows raising an alarm on a healthy machine is the number that
+gets the system switched off, whatever the AUC says. The 4-window persistence
+gate exists to absorb exactly this and is not exercised by this harness.
+
+**Two of the four learn periods were flagged as contaminated by the tool's own
+check** — id 00 at 2.87x and id 02 at 1.39x between the empirical 99.5th
+percentile and the robust fit, meaning something abnormal was audible during
+what was supposed to be a clean learn period. The safer threshold was deployed
+automatically. That is the guard working, but it also means two of these four
+baselines were learned on imperfect data, and the honest fix (relearn on a
+quiet machine) is not available in a fixed public dataset.
+
+### What this does and does not establish
+
+**Does:** the self-baselined path works on real industrial machine audio, on
+four units it has never seen, learning only from normal sound, with no
+geometry or model number supplied — and it ranks anomalies well above a
+published baseline on the same recordings.
+
+**Does not:**
+- **One machine *type*.** Fans only. `dev_data_pump.zip` and the other four
+  types were not run. Fan is also the type this project has the most prior
+  exposure to, which is a mild but real bias in what got tested first.
+- **Not a like-for-like challenge score** — see the comparability caveat.
+- **Nothing about a usable operating point.** 16.7% mean false alarms is not
+  deployable and the spread across units is the real finding.
+- **Nothing about time.** These are curated test sets, not weeks of running.
+- The data is **CC BY-NC-SA 4.0, NonCommercial.** Fine for a dissertation, a
+  CV and deciding whether this works. Results derived from it cannot be used
+  commercially.
+
+Sources: [DCASE 2020 Task 2 development dataset](https://zenodo.org/records/3678171) ·
+[baseline system and its published per-ID scores](https://github.com/y-kawagu/dcase2020_task2_baseline)
+
+---
+
 ## Week 1 — Bring-up (Gate 1)
 
 **Gate 1**, from the execution plan (not in this public copy): real audio and vibration land in a
