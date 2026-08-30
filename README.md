@@ -3,7 +3,7 @@
 Detecting mechanical faults in rotating machinery from sound, with no prior
 data about the machine being monitored.
 
-Python · NumPy/SciPy · scikit-learn · pytest · FastAPI · React · 679 tests
+Python · NumPy/SciPy · scikit-learn · pytest · FastAPI · React · 693 tests
 
 ---
 
@@ -165,7 +165,7 @@ No hardware, no recordings needed — about ten minutes:
 pip install -r ml/requirements.txt
 python ml/simulate.py --outdir data          # generate test signals
 python tools/cold_start_screen.py --self-test
-pytest tests/                                 # 679 tests
+pytest tests/                                 # 693 tests
 ```
 
 [RUN_IT.md](docs/RUN_IT.md) walks through the whole pipeline on synthetic
@@ -263,7 +263,7 @@ first if you only read one.
 | `tools/` | the analysis command line: cold-start screen, one-command scan, experiment harnesses |
 | `backend/` | FastAPI + SQLAlchemy service, MQTT bridge, alert dispatch |
 | `frontend/` | React dashboard |
-| `tests/` | 679 tests, run on every push |
+| `tests/` | 693 tests, run on every push |
 | `docs/` | physics, pipeline, detector, alerting, sensitivity — and the findings register |
 
 ---
